@@ -13,6 +13,8 @@ export default function AdminDashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [copiedToken, setCopiedToken] = useState(null);
+  const [resumeView, setResumeView] = useState(null);
+  const [resumeError, setResumeError] = useState(null);
 
   // Gmail Modal State
   const [showGmailModal, setShowGmailModal] = useState(false);
@@ -43,6 +45,31 @@ export default function AdminDashboardPage() {
     navigator.clipboard.writeText(link);
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);
+  };
+
+  const openCandidate = (c) => {
+    setSelectedCandidate(c);
+    setResumeView(null);
+    setResumeError(null);
+  };
+
+  const handleViewResume = async () => {
+    try {
+      setResumeError(null);
+      setResumeView(await dashboardService.getResume(selectedCandidate.candidate_id));
+    } catch (err) {
+      setResumeError(err.response?.data?.detail || 'Could not load resume.');
+    }
+  };
+
+  const handleDownloadResume = () => {
+    const blob = new Blob([resumeView.resume_text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${resumeView.candidate_name.replace(/\s+/g, '_')}_resume.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleSyncGmail = async () => {
@@ -81,8 +108,9 @@ export default function AdminDashboardPage() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'OFFER_SENT':
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">SELECTED · OFFER SENT</span>;
       case 'SELECTED':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">SELECTED / OFFER SENT</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30" title="Selected, but the offer email has not been confirmed as delivered">SELECTED · OFFER PENDING</span>;
       case 'TEST_SENT':
       case 'RESUME_SHORTLISTED':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">TEST SENT</span>;
@@ -90,8 +118,9 @@ export default function AdminDashboardPage() {
       case 'TEST_COMPLETED':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">TEST IN PROGRESS</span>;
       case 'RESUME_REJECTED':
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">REJECTED · RESUME</span>;
       case 'TEST_FAILED':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">REJECTED</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">REJECTED · TEST</span>;
       default:
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">{status}</span>;
     }
@@ -268,17 +297,17 @@ export default function AdminDashboardPage() {
                     </td>
 
                     <td className="px-6 py-4 text-slate-300 font-medium">
-                      {c.job_id}
+                      {c.job_title || c.job_id}
                     </td>
 
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-2">
-                        <span className={`font-bold ${c.resume_score >= 70 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                        <span className={`font-bold ${c.resume_score >= (c.job_minimum_resume_score ?? 70) ? 'text-emerald-400' : 'text-slate-400'}`}>
                           {c.resume_score}%
                         </span>
                         {c.resume_analysis && (
                           <button
-                            onClick={() => setSelectedCandidate(c)}
+                            onClick={() => openCandidate(c)}
                             className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white"
                             title="View AI Analysis Breakdown"
                           >
@@ -324,7 +353,7 @@ export default function AdminDashboardPage() {
 
                     <td className="px-6 py-4 text-right">
                       <button
-                        onClick={() => setSelectedCandidate(c)}
+                        onClick={() => openCandidate(c)}
                         className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700"
                       >
                         Details
@@ -406,7 +435,12 @@ export default function AdminDashboardPage() {
             <div className="flex items-start justify-between border-b border-slate-800 pb-4">
               <div>
                 <h3 className="text-xl font-bold text-white">{selectedCandidate.name}</h3>
-                <p className="text-xs text-slate-400">{selectedCandidate.email} • Job: {selectedCandidate.job_id}</p>
+                <p className="text-xs text-slate-400">{selectedCandidate.email} • Job: {selectedCandidate.job_title || selectedCandidate.job_id}</p>
+                <div className="mt-2 flex items-center gap-3 text-xs">
+                  {getStatusBadge(selectedCandidate.application_status)}
+                  <span className="text-slate-400">Resume: <b className="text-white">{selectedCandidate.resume_score}%</b></span>
+                  <span className="text-slate-400">Test: <b className="text-white">{selectedCandidate.test_status === 'COMPLETED' ? `${selectedCandidate.test_score}%` : '—'}</b></span>
+                </div>
               </div>
               <button
                 onClick={() => setSelectedCandidate(null)}
@@ -472,7 +506,34 @@ export default function AdminDashboardPage() {
               <div className="text-xs text-slate-400">No AI evaluation metadata available for this candidate.</div>
             )}
 
-            <div className="pt-2 flex justify-end">
+            {resumeView && (
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-semibold">Resume ({resumeView.resume_filename})</span>
+                  <button onClick={handleDownloadResume} className="text-blue-400 hover:text-blue-300 font-semibold">Download</button>
+                </div>
+                <pre className="whitespace-pre-wrap bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-slate-300 max-h-64 overflow-y-auto">{resumeView.resume_text}</pre>
+              </div>
+            )}
+            {resumeError && <div className="text-xs text-red-400">{resumeError}</div>}
+
+            <div className="pt-2 flex flex-wrap justify-end gap-2">
+              <button
+                onClick={handleViewResume}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5"
+              >
+                <FileText className="w-3.5 h-3.5" /> View Resume
+              </button>
+              {['SELECTED', 'OFFER_SENT'].includes(selectedCandidate.application_status) && (
+                <a
+                  href={dashboardService.offerLetterUrl(selectedCandidate.candidate_id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5"
+                >
+                  <Award className="w-3.5 h-3.5" /> Offer Letter PDF
+                </a>
+              )}
               <button
                 onClick={() => setSelectedCandidate(null)}
                 className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"

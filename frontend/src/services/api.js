@@ -25,6 +25,11 @@ export const dashboardService = {
     const response = await api.get('/api/dashboard/stats');
     return response.data;
   },
+  getResume: async (candidateId) => {
+    const response = await api.get(`/api/candidates/${candidateId}/resume`);
+    return response.data;
+  },
+  offerLetterUrl: (candidateId) => `${API_BASE_URL}/api/candidates/${candidateId}/offer-letter`,
   getCandidates: async (status) => {
     const response = await api.get('/api/candidates', {
       params: status ? { status } : {}

@@ -1,28 +1,37 @@
 import os
 import json
+import time
 import requests
 import logging
 
 logger = logging.getLogger(__name__)
 
-def evaluate_resume_with_gemini(resume_text: str, job_description: str) -> dict:
+
+class GeminiError(Exception):
+    pass
+
+
+def evaluate_resume_with_gemini(resume_text: str, job) -> dict:
     """
-    Sends candidate resume text and job description to Google Gemini AI.
-    Returns structured JSON analysis.
+    Sends candidate resume text and the job requirements to Google Gemini AI.
+    Returns structured JSON analysis. Raises GeminiError on any failure so callers
+    never treat an API outage as a real (rejecting) score.
     """
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key or api_key == "your_gemini_api_key_here":
-        raise ValueError("GEMINI_API_KEY is not configured in backend/.env")
+        raise GeminiError("GEMINI_API_KEY is not configured in backend/.env")
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+    skills = ", ".join(job.required_skills or [])
     prompt = f"""You are an AI recruitment screening assistant.
 
 Analyze the candidate resume against the provided job description.
 
 Evaluate:
-1. Required skills
-2. Relevant experience
+1. Required skills ({skills})
+2. Relevant experience (required: {job.minimum_experience})
 3. Education
 4. Projects
 5. Technologies
@@ -43,45 +52,39 @@ Return ONLY valid JSON matching this schema:
   "reason": ""
 }}
 
+Job Title: {job.title}
+
 Job Description:
-{job_description}
+{job.description}
 
 Candidate Resume:
 {resume_text}"""
 
     payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseMimeType": "application/json"},
     }
 
-    headers = {"Content-Type": "application/json"}
-
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=20)
+        for attempt in range(3):
+            response = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                timeout=60,
+            )
+            if response.status_code not in (429, 503) or attempt == 2:
+                break
+            time.sleep(2 ** (attempt + 1))
         response.raise_for_status()
-        res_data = response.json()
-
-        raw_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-        # Clean markdown codeblocks
+        raw_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
         clean_text = raw_text.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(clean_text)
+        parsed["match_score"] = int(parsed.get("match_score", 0))
         return parsed
+    except requests.HTTPError as e:
+        logger.error(f"Gemini API HTTP error: {e.response.status_code} {e.response.text[:300]}")
+        raise GeminiError(f"Gemini API returned HTTP {e.response.status_code}") from e
     except Exception as e:
-        logger.error(f"Gemini API Evaluation failed: {str(e)}")
-        # Fallback evaluation if API error occurs
-        return {
-            "eligible": False,
-            "match_score": 50,
-            "skills_match": 50,
-            "experience_match": 50,
-            "education_match": 50,
-            "relevance_score": 50,
-            "matched_skills": [],
-            "missing_skills": [],
-            "reason": f"Evaluation error: {str(e)}"
-        }
+        logger.error(f"Gemini API evaluation failed: {e}")
+        raise GeminiError(f"Gemini evaluation failed: {e}") from e

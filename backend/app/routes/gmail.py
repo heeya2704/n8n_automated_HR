@@ -7,7 +7,8 @@ from dotenv import set_key
 from app.database import get_db
 from app.models import Candidate, Job, WorkflowLog, ApplicationStatus
 from app.services.gmail_service import fetch_candidate_resumes_from_gmail, send_email_via_gmail
-from app.services.gemini_service import evaluate_resume_with_gemini
+from app.services.gemini_service import evaluate_resume_with_gemini, GeminiError
+from app.services.notifications import company_name
 from app.routes.candidates import process_screening_result
 from app.schemas import CandidateScreeningUpdate
 
@@ -77,34 +78,39 @@ def sync_gmail_inbox_and_process(
         r_text = item["resume_text"]
         r_file = item["resume_filename"]
 
-        # Run Gemini AI screening
-        eval_result = evaluate_resume_with_gemini(
-            resume_text=r_text,
-            job_description=job.description
-        )
+        try:
+            eval_result = evaluate_resume_with_gemini(resume_text=r_text, job=job)
+        except GeminiError as e:
+            processed_list.append({"candidate_name": c_name, "candidate_email": c_email, "score": None,
+                                   "status": "ERROR", "error": str(e)})
+            continue
 
-        score = eval_result.get("match_score", 0)
-        is_eligible = eval_result.get("eligible", False) and (score >= job.minimum_resume_score)
-
+        score = int(eval_result.get("match_score", 0))
         screening_data = CandidateScreeningUpdate(
             email=c_email,
             name=c_name,
             job_id=job_id,
             resume_score=score,
-            eligible=is_eligible,
             resume_analysis=eval_result,
-            resume_text=r_text
+            resume_text=r_text,
+            resume_filename=r_file
         )
 
         result = process_screening_result(screening_data, db=db)
+        company = company_name()
 
-        # Dispatch email via Gmail SMTP
-        if is_eligible and "test_link" in result:
+        if result["status"] == "DUPLICATE":
+            processed_list.append({"candidate_name": c_name, "candidate_email": c_email, "score": score,
+                                   "status": "DUPLICATE", "email_sent": False})
+            continue
+
+        if result["status"] == "SHORTLISTED":
+            subject = f"Online Assessment Test Link - {job.title}"
             email_body = f"""Dear {c_name},
 
-Thank you for applying for the {job.title} position at TechCorp Solutions.
+Thank you for applying for the {job.title} position at {company}.
 
-We are pleased to inform you that your resume matched our requirements with a Gemini AI match score of {score}%.
+We are pleased to inform you that your resume matched our requirements with a match score of {score}%.
 
 Please complete your online assessment using your unique test link below:
 
@@ -113,21 +119,16 @@ Please complete your online assessment using your unique test link below:
 Note:
 - Time limit: 30 minutes
 - Passing score: {job.test_passing_score}%
+- The link expires in 48 hours.
 
 Best regards,
 HR Team
-TechCorp Solutions"""
-            send_email_via_gmail(
-                to_email=c_email,
-                subject=f"Online Assessment Test Link - {job.title}",
-                body=email_body,
-                gmail_user=gmail_user,
-                gmail_password=gmail_password
-            )
+{company}"""
         else:
-            rejection_body = f"""Dear {c_name},
+            subject = f"Application Update - {job.title}"
+            email_body = f"""Dear {c_name},
 
-Thank you for applying for the {job.title} position at TechCorp Solutions.
+Thank you for applying for the {job.title} position at {company}.
 
 After reviewing your application against our job requirements, we are unable to proceed with your application at this stage.
 
@@ -135,20 +136,35 @@ We appreciate your interest in our organization and wish you success in your fut
 
 Regards,
 HR Team
-TechCorp Solutions"""
-            send_email_via_gmail(
-                to_email=c_email,
-                subject=f"Application Update - {job.title}",
-                body=rejection_body,
-                gmail_user=gmail_user,
-                gmail_password=gmail_password
-            )
+{company}"""
+
+        sent = send_email_via_gmail(
+            to_email=c_email,
+            subject=subject,
+            body=email_body,
+            gmail_user=gmail_user,
+            gmail_password=gmail_password
+        )
+        if not sent:
+            candidate = db.query(Candidate).filter(Candidate.email == c_email, Candidate.job_id == job_id).first()
+            db.add(WorkflowLog(
+                candidate_id=candidate.id if candidate else None,
+                candidate_email=c_email,
+                workflow_name="Resume Screening Email",
+                status="EMAIL_FAILED",
+                message=f"{subject} email NOT delivered.",
+                resume_score=score,
+                application_status=candidate.application_status.value if candidate else None,
+                error_message="Gmail SMTP send failed"
+            ))
+            db.commit()
 
         processed_list.append({
             "candidate_name": c_name,
             "candidate_email": c_email,
             "score": score,
-            "status": result["status"]
+            "status": result["status"],
+            "email_sent": sent
         })
 
     return {

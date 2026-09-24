@@ -16,9 +16,10 @@ class CandidateScreeningUpdate(BaseModel):
     job_id: str
     name: Optional[str] = None
     resume_score: int
-    eligible: bool
+    eligible: Optional[bool] = None  # informational; backend decides using job.minimum_resume_score
     resume_analysis: Optional[Dict[str, Any]] = None
     resume_text: Optional[str] = None
+    resume_filename: Optional[str] = None
 
 class CandidateResponse(BaseModel):
     id: int
@@ -26,6 +27,9 @@ class CandidateResponse(BaseModel):
     name: str
     email: str
     job_id: str
+    job_title: Optional[str] = None
+    job_minimum_resume_score: Optional[int] = None
+    resume_filename: Optional[str] = None
     resume_score: int
     resume_analysis: Optional[Dict[str, Any]] = None
     test_token: Optional[str] = None

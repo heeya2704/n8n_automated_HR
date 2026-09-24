@@ -31,6 +31,10 @@ services:
       - GMAIL_USER=${GMAIL_USER}
       - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
       - N8N_TEST_RESULT_WEBHOOK_URL=http://n8n:5678/webhook/test-result
+      - BACKEND_URL=http://backend:8000
+      - FRONTEND_URL=http://localhost:3000
+      - COMPANY_NAME=${COMPANY_NAME:-TechCorp Solutions}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
     ports:
       - "8000:8000"
     depends_on:
@@ -63,6 +67,9 @@ services:
       - NODE_ENV=production
       - WEBHOOK_URL=http://localhost:5678/
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
+      - BACKEND_URL=http://backend:8000
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_data:/home/node/.n8n
 

@@ -44,3 +44,11 @@ class Candidate(Base):
 
     job = relationship("Job", back_populates="candidates")
     test_results = relationship("TestResult", back_populates="candidate")
+
+    @property
+    def job_title(self):
+        return self.job.title if self.job else None
+
+    @property
+    def job_minimum_resume_score(self):
+        return self.job.minimum_resume_score if self.job else None

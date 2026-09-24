@@ -1,10 +1,11 @@
+import os
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Candidate, TestResult, Job, WorkflowLog, TestStatus, ApplicationStatus
 from app.schemas import TestVerifyResponse, TestSubmitRequest, TestSubmitResponse, QuestionItem
-from app.services import trigger_n8n_test_result_webhook, generate_offer_letter_pdf
+from app.services.notifications import notify_test_decision, company_name
 
 router = APIRouter(prefix="/api/test", tags=["Assessment Test"])
 
@@ -180,50 +181,41 @@ def submit_test(token: str, payload: TestSubmitRequest, db: Session = Depends(ge
     db.commit()
 
     is_passed = percentage_score >= passing_score
+    candidate.application_status = ApplicationStatus.SELECTED if is_passed else ApplicationStatus.TEST_FAILED
+    db.commit()
 
-    # Determine final decision
-    if is_passed:
-        candidate.application_status = ApplicationStatus.SELECTED
-        pdf_path = generate_offer_letter_pdf(
-            candidate_name=candidate.name,
-            candidate_email=candidate.email,
-            job_title=job.title if job else "Python / Machine Learning Developer"
-        )
-        candidate.application_status = ApplicationStatus.OFFER_SENT
-        db.commit()
-    else:
-        candidate.application_status = ApplicationStatus.TEST_FAILED
-        db.commit()
-
-    # Log workflow event
-    log_status = "SELECTED" if is_passed else "TEST_FAILED"
-    workflow_log = WorkflowLog(
+    db.add(WorkflowLog(
         candidate_id=candidate.id,
         candidate_email=candidate.email,
-        workflow_name="Test Result Evaluation",
-        status=log_status,
+        workflow_name="Test Submission & Evaluation",
+        status="SELECTED" if is_passed else "TEST_FAILED",
         message=f"Candidate scored {percentage_score}% (Passing score: {passing_score}%).",
         test_score=percentage_score,
         application_status=candidate.application_status.value
-    )
-    db.add(workflow_log)
+    ))
     db.commit()
 
-    # Trigger n8n webhook asynchronously
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
     n8n_payload = {
         "candidate_id": str(candidate.id),
         "candidate_uuid": candidate.candidate_id,
         "candidate_name": candidate.name,
         "candidate_email": candidate.email,
         "job_id": candidate.job_id,
+        "job_title": job.title,
+        "resume_score": candidate.resume_score,
         "test_score": percentage_score,
         "passing_score": passing_score,
         "total_questions": total_q,
         "correct_answers": correct_count,
         "status": candidate.application_status.value,
-        "eligible_for_offer": is_passed
+        "eligible_for_offer": is_passed,
+        "company_name": company_name(),
+        "backend_url": backend_url,
+        "offer_letter_url": f"{backend_url}/api/candidates/{candidate.candidate_id}/offer-letter" if is_passed else None,
     }
-    trigger_n8n_test_result_webhook(n8n_payload)
+    notify_test_decision(db, candidate, job, n8n_payload)
+    final_status = candidate.application_status.value
 
     return TestSubmitResponse(
         message="Assessment test submitted successfully.",
@@ -232,6 +224,6 @@ def submit_test(token: str, payload: TestSubmitRequest, db: Session = Depends(ge
         score=percentage_score,
         total_questions=total_q,
         correct_answers=correct_count,
-        status=candidate.application_status.value,
+        status=final_status,
         eligible_for_offer=is_passed
     )

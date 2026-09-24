@@ -1,13 +1,16 @@
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.models import Candidate, Job, WorkflowLog, TestStatus, ApplicationStatus
 from app.schemas import CandidateCreate, CandidateScreeningUpdate, CandidateResponse
-from app.services.gemini_service import evaluate_resume_with_gemini
+from app.services.gemini_service import evaluate_resume_with_gemini, GeminiError
+from app.services.pdf_generator import generate_offer_letter_pdf
 
 router = APIRouter(prefix="/api/candidates", tags=["Candidates"])
 
@@ -30,10 +33,51 @@ def get_candidate_by_id(candidate_id: str, db: Session = Depends(get_db)):
         candidate = db.query(Candidate).filter(Candidate.id == int(candidate_id)).first()
     if not candidate:
         candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first()
-    
+
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return candidate
+
+@router.get("/{candidate_id}/resume")
+def download_candidate_resume(candidate_id: str, db: Session = Depends(get_db)):
+    """
+    Download/retrieve candidate resume as text or file.
+    Returns resume text content as plain text.
+    """
+    candidate = None
+    if candidate_id.isdigit():
+        candidate = db.query(Candidate).filter(Candidate.id == int(candidate_id)).first()
+    if not candidate:
+        candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    if not candidate.resume_text:
+        raise HTTPException(status_code=404, detail="Resume not found for this candidate")
+
+    return {
+        "candidate_id": candidate.candidate_id,
+        "candidate_email": candidate.email,
+        "candidate_name": candidate.name,
+        "resume_filename": candidate.resume_filename or "resume.txt",
+        "resume_text": candidate.resume_text
+    }
+
+@router.get("/{candidate_id}/offer-letter")
+def download_offer_letter(candidate_id: str, db: Session = Depends(get_db)):
+    """Offer letter PDF for a selected candidate (used by n8n as the email attachment and by HR)."""
+    candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.application_status not in (ApplicationStatus.SELECTED, ApplicationStatus.OFFER_SENT):
+        raise HTTPException(status_code=400, detail="Offer letter is only available for selected candidates")
+    path = generate_offer_letter_pdf(
+        candidate_name=candidate.name,
+        candidate_email=candidate.email,
+        job_title=candidate.job.title,
+    )
+    return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
 
 @router.post("", response_model=CandidateResponse)
 def create_or_register_candidate(candidate_in: CandidateCreate, db: Session = Depends(get_db)):
@@ -109,6 +153,23 @@ def process_screening_result(data: CandidateScreeningUpdate, db: Session = Depen
         Candidate.job_id == data.job_id
     ).first()
 
+    job = db.query(Job).filter(Job.id == data.job_id).first()
+    if not job:
+        raise HTTPException(status_code=400, detail=f"Job with ID '{data.job_id}' does not exist.")
+
+    if candidate and candidate.application_status not in (
+        ApplicationStatus.RECEIVED, ApplicationStatus.RESUME_PROCESSING, ApplicationStatus.ERROR
+    ):
+        return {
+            "status": "DUPLICATE",
+            "eligible": None,
+            "candidate_id": candidate.candidate_id,
+            "candidate_email": candidate.email,
+            "candidate_name": candidate.name,
+            "application_status": candidate.application_status.value,
+            "reason": "Candidate already screened for this job; no action taken."
+        }
+
     if not candidate:
         # Create record on the fly
         candidate = Candidate(
@@ -127,8 +188,12 @@ def process_screening_result(data: CandidateScreeningUpdate, db: Session = Depen
     candidate.resume_score = data.resume_score
     if data.resume_analysis:
         candidate.resume_analysis = data.resume_analysis
+    if data.resume_text:
+        candidate.resume_text = data.resume_text
+    if data.resume_filename:
+        candidate.resume_filename = data.resume_filename
 
-    if data.eligible:
+    if data.resume_score >= job.minimum_resume_score:
         # Eligible -> Shortlisted & generate secure test token
         candidate.application_status = ApplicationStatus.RESUME_SHORTLISTED
         
@@ -145,14 +210,14 @@ def process_screening_result(data: CandidateScreeningUpdate, db: Session = Depen
             candidate_email=candidate.email,
             workflow_name="Resume Screening",
             status="RESUME_SHORTLISTED",
-            message=f"Resume score {data.resume_score}% meets threshold. Test link generated.",
+            message=f"Resume score {data.resume_score}% meets threshold {job.minimum_resume_score}%. Test link generated.",
             resume_score=data.resume_score,
             application_status=ApplicationStatus.RESUME_SHORTLISTED.value
         )
         db.add(log)
         db.commit()
 
-        test_link = f"http://localhost:3000/test/{candidate.test_token}"
+        test_link = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/test/{candidate.test_token}"
         
         return {
             "status": "SHORTLISTED",
@@ -161,6 +226,8 @@ def process_screening_result(data: CandidateScreeningUpdate, db: Session = Depen
             "candidate_email": candidate.email,
             "candidate_name": candidate.name,
             "resume_score": data.resume_score,
+            "threshold": job.minimum_resume_score,
+            "job_title": job.title,
             "test_token": candidate.test_token,
             "test_link": test_link
         }
@@ -175,7 +242,7 @@ def process_screening_result(data: CandidateScreeningUpdate, db: Session = Depen
             candidate_email=candidate.email,
             workflow_name="Resume Screening",
             status="RESUME_REJECTED",
-            message=f"Resume score {data.resume_score}% below threshold.",
+            message=f"Resume score {data.resume_score}% below threshold {job.minimum_resume_score}%.",
             resume_score=data.resume_score,
             application_status=ApplicationStatus.RESUME_REJECTED.value
         )
@@ -189,6 +256,8 @@ def process_screening_result(data: CandidateScreeningUpdate, db: Session = Depen
             "candidate_email": candidate.email,
             "candidate_name": candidate.name,
             "resume_score": data.resume_score,
+            "threshold": job.minimum_resume_score,
+            "job_title": job.title,
             "reason": "Resume score does not meet job criteria"
         }
 
@@ -207,14 +276,13 @@ def screen_resume_with_gemini_ai(
     if not job:
         raise HTTPException(status_code=400, detail="Job ID not found")
 
-    # Call Gemini AI
-    eval_result = evaluate_resume_with_gemini(
-        resume_text=resume_text,
-        job_description=job.description
-    )
+    try:
+        eval_result = evaluate_resume_with_gemini(resume_text=resume_text, job=job)
+    except GeminiError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
-    score = eval_result.get("match_score", 0)
-    is_eligible = eval_result.get("eligible", False) and (score >= job.minimum_resume_score)
+    score = int(eval_result.get("match_score", 0))
+    is_eligible = score >= job.minimum_resume_score
 
     screening_data = CandidateScreeningUpdate(
         email=email,
