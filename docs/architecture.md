@@ -1,3 +1,4 @@
+
 # Architecture Documentation — AI Recruitment Automation
 
 This document outlines the system architecture, sequence flow, data schemas, and API contracts for the **AI-Powered Automated Recruitment System using n8n**.
