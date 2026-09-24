@@ -1,0 +1,20 @@
+Jordan Reed
+Email: jordan.reed@example.com | Phone: +1-555-0188
+Location: Chicago, IL
+
+PROFESSIONAL SUMMARY
+Creative Graphic Designer & Front-End UI Designer with 3 years of experience specializing in Figma, Adobe Illustrator, HTML, CSS, and WordPress theme development. Passionate about visual aesthetics, branding, and user interfaces.
+
+TECHNICAL SKILLS
+- Design Tools: Figma, Adobe Photoshop, Illustrator, InDesign, Canva
+- Web Technologies: HTML5, CSS3, JavaScript (Basic), WordPress, Webflow
+- Soft Skills: Typography, Color Theory, Layout Design, Communication
+
+EXPERIENCE
+Graphic Designer | Creative Edge Agency (2021 – Present)
+- Designed brand logos, social media graphics, and marketing materials for 20+ client campaigns.
+- Developed custom WordPress landing pages for small business clients.
+
+EDUCATION
+Bachelor of Fine Arts (BFA) in Graphic Design
+Design Institute of Chicago | 2021

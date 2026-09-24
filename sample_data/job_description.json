@@ -1,0 +1,18 @@
+{
+  "job_id": "python-ml-developer-001",
+  "job_title": "Python / Machine Learning Developer",
+  "required_skills": [
+    "Python",
+    "FastAPI",
+    "SQL",
+    "Machine Learning",
+    "Pandas",
+    "NumPy",
+    "REST API",
+    "Git"
+  ],
+  "minimum_experience": "0-2 years",
+  "minimum_resume_score": 70,
+  "test_passing_score": 80,
+  "description": "We are looking for a Python/Machine Learning developer who can build APIs, work with ML models and databases, and develop automation systems."
+}

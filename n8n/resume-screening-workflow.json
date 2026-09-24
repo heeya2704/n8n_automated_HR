@@ -1,0 +1,392 @@
+{
+  "name": "1 - AI Resume Screening Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "readStatus": "unread"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "node-gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "HR Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-screening",
+        "options": {}
+      },
+      "id": "node-webhook-trigger",
+      "name": "Webhook Resume Trigger (Test)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        500
+      ],
+      "webhookId": "resume-screening-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract email metadata and candidate details\nconst item = $input.item.json;\nconst binary = $input.item.binary;\n\nlet candidateEmail = item.from ? (item.from.value ? item.from.value[0].address : item.from) : (item.candidate_email || 'candidate@gmail.com');\nlet candidateName = item.from ? (item.from.value ? item.from.value[0].name : 'Candidate') : (item.candidate_name || 'Candidate');\nlet subject = item.subject || 'Application for Software Developer';\nlet resumeText = item.resume_text || '';\nlet resumeFilename = 'candidate_resume.pdf';\n\nif (binary && binary.attachment_0) {\n  resumeFilename = binary.attachment_0.fileName || 'resume.pdf';\n}\n\n// Normalize candidate payload\nreturn [{\n  json: {\n    candidate_name: candidateName,\n    candidate_email: candidateEmail,\n    application_subject: subject,\n    resume_filename: resumeFilename,\n    resume_text: resumeText || 'Python Developer with 2 years of experience in FastAPI, SQL, Machine Learning, Pandas, NumPy, and REST API development.',\n    job_id: 'python-ml-developer-001',\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "node-normalize-candidate",
+      "name": "Normalize Candidate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "job_id",
+              "value": "python-ml-developer-001"
+            },
+            {
+              "name": "job_title",
+              "value": "Python / Machine Learning Developer"
+            },
+            {
+              "name": "minimum_experience",
+              "value": "0-2 years"
+            },
+            {
+              "name": "job_description",
+              "value": "We are looking for a Python/Machine Learning developer who can build APIs, work with ML models and databases, and develop automation systems."
+            }
+          ],
+          "number": [
+            {
+              "name": "minimum_resume_score",
+              "value": 70
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-load-job-desc",
+      "name": "Load Job Description",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        680,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are an AI recruitment screening assistant.\\n\\nAnalyze the candidate resume against the provided job description.\\n\\nEvaluate:\\n1. Required skills (Python, FastAPI, SQL, Machine Learning, Pandas, NumPy, REST API, Git)\\n2. Relevant experience\\n3. Education\\n4. Projects\\n5. Technologies\\n6. Overall job relevance\\n\\nDo not make decisions based on protected or sensitive personal characteristics.\\n\\nReturn ONLY valid JSON matching this schema:\\n{\\n  \\\"eligible\\\": true/false,\\n  \\\"match_score\\\": 0-100,\\n  \\\"skills_match\\\": 0-100,\\n  \\\"experience_match\\\": 0-100,\\n  \\\"education_match\\\": 0-100,\\n  \\\"relevance_score\\\": 0-100,\\n  \\\"matched_skills\\\": [],\\n  \\\"missing_skills\\\": [],\\n  \\\"reason\\\": \\\"\\\"\\n}\\n\\nJob Description:\\n{{ $node['Load Job Description'].json.job_description }}\\n\\nCandidate Resume:\\n{{ $node['Normalize Candidate Data'].json.resume_text }}\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "node-gemini-ai",
+      "name": "Gemini AI Resume Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        920,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.item.json;\nlet rawText = '';\n\ntry {\n  rawText = response.candidates[0].content.parts[0].text;\n} catch (e) {\n  rawText = JSON.stringify(response);\n}\n\n// Clean markdown formatting (```json ... ```)\nrawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();\n\nlet evalData = {};
+try {
+  evalData = JSON.parse(rawText);
+} catch (e) {
+  evalData = {
+    eligible: false,
+    match_score: 50,
+    matched_skills: [],
+    missing_skills: [],
+    reason: \"Failed to parse structured JSON from AI response: \" + e.message
+  };
+}
+
+const candidate = $node['Normalize Candidate Data'].json;
+const minScore = $node['Load Job Description'].json.minimum_resume_score || 70;
+const isEligible = evalData.eligible && (evalData.match_score >= minScore);
+
+return [{
+  json: {
+    candidate_name: candidate.candidate_name,
+    candidate_email: candidate.candidate_email,
+    job_id: candidate.job_id,
+    resume_score: evalData.match_score || 0,
+    eligible: isEligible,
+    resume_analysis: evalData,
+    resume_text: candidate.resume_text
+  }
+}];"
+      },
+      "id": "node-parse-gemini-json",
+      "name": "Parse Gemini JSON & Check Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.eligible }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if-eligible",
+      "name": "IF Eligible?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/candidates/screen",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{ $json.candidate_email }}\",\n  \"name\": \"{{ $json.candidate_name }}\",\n  \"job_id\": \"{{ $json.job_id }}\",\n  \"resume_score\": {{ $json.resume_score }},\n  \"eligible\": true,\n  \"resume_analysis\": {{ JSON.stringify($json.resume_analysis) }},\n  \"resume_text\": \"{{ $json.resume_text }}\"\n}",
+        "options": {}
+      },
+      "id": "node-backend-screen-true",
+      "name": "Register Shortlisted in FastAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.candidate_email }}",
+        "subject": "Online Assessment Test - Python / Machine Learning Developer Position",
+        "message": "=Dear {{ $node['Parse Gemini JSON & Check Score'].json.candidate_name }},\n\nThank you for applying for the Python / Machine Learning Developer position at TechCorp Solutions.\n\nWe are pleased to inform you that your resume has been shortlisted for the next stage of our selection process.\n\nPlease complete your online technical assessment by clicking the link below:\n\n{{ $json.test_link }}\n\nNote:\n- Time limit: 30 minutes\n- The link is unique to you and will expire in 48 hours.\n\nBest regards,\nHR Team\nTechCorp Solutions",
+        "options": {}
+      },
+      "id": "node-send-test-email",
+      "name": "Send Test Link Email (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1880,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "HR Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/candidates/screen",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{ $json.candidate_email }}\",\n  \"name\": \"{{ $json.candidate_name }}\",\n  \"job_id\": \"{{ $json.job_id }}\",\n  \"resume_score\": {{ $json.resume_score }},\n  \"eligible\": false,\n  \"resume_analysis\": {{ JSON.stringify($json.resume_analysis) }},\n  \"resume_text\": \"{{ $json.resume_text }}\"\n}",
+        "options": {}
+      },
+      "id": "node-backend-screen-false",
+      "name": "Register Rejected in FastAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1640,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.candidate_email }}",
+        "subject": "Application Update - Python / Machine Learning Developer",
+        "message": "=Dear {{ $node['Parse Gemini JSON & Check Score'].json.candidate_name }},\n\nThank you for applying for the Python / Machine Learning Developer position at TechCorp Solutions.\n\nAfter reviewing your application against our current job requirements, we are unable to proceed with your application at this stage.\n\nWe appreciate your interest in our organization and wish you success in your future endeavors.\n\nRegards,\nHR Team\nTechCorp Solutions",
+        "options": {}
+      },
+      "id": "node-send-rejection-email",
+      "name": "Send Rejection Email (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1880,
+        550
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "HR Gmail Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Candidate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Resume Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Candidate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Candidate Data": {
+      "main": [
+        [
+          {
+            "node": "Load Job Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Job Description": {
+      "main": [
+        [
+          {
+            "node": "Gemini AI Resume Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini AI Resume Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini JSON & Check Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini JSON & Check Score": {
+      "main": [
+        [
+          {
+            "node": "IF Eligible?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Eligible?": {
+      "main": [
+        [
+          {
+            "node": "Register Shortlisted in FastAPI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Register Rejected in FastAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Shortlisted in FastAPI": {
+      "main": [
+        [
+          {
+            "node": "Send Test Link Email (Gmail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Rejected in FastAPI": {
+      "main": [
+        [
+          {
+            "node": "Send Rejection Email (Gmail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

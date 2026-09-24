@@ -1,0 +1,201 @@
+{
+  "name": "2 - AI Recruitment Test Result Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-result",
+        "options": {}
+      },
+      "id": "node-webhook-test-result",
+      "name": "Webhook Test Result",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "webhookId": "test-result-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json.body || $input.item.json;\nconst score = item.test_score || 0;\nconst passingScore = item.passing_score || 80;\nconst isSelected = score >= passingScore;\n\nreturn [{\n  json: {\n    candidate_id: item.candidate_id || '',\n    candidate_email: item.candidate_email || '',\n    candidate_name: item.candidate_name || 'Candidate',\n    job_id: item.job_id || 'python-ml-developer-001',\n    test_score: score,\n    passing_score: passingScore,\n    is_selected: isSelected,\n    total_questions: item.total_questions || 10,\n    correct_answers: item.correct_answers || 0\n  }\n}];"
+      },
+      "id": "node-parse-test-result",
+      "name": "Parse Test Result Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_selected }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if-score-passed",
+      "name": "IF Score >= 80%?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/webhooks/test-result",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"candidate_id\": \"{{ $json.candidate_id }}\",\n  \"candidate_email\": \"{{ $json.candidate_email }}\",\n  \"test_score\": {{ $json.test_score }}\n}",
+        "options": {}
+      },
+      "id": "node-fastapi-generate-offer",
+      "name": "Trigger FastAPI Offer Letter PDF Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        920,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node['Parse Test Result Payload'].json.candidate_email }}",
+        "subject": "Congratulations! You Have Been Selected - TechCorp Solutions",
+        "message": "=Dear {{ $node['Parse Test Result Payload'].json.candidate_name }},\n\nWe are pleased to offer you the position of Python / Machine Learning Developer at TechCorp Solutions.\n\nYour assessment result successfully met our selection criteria with a score of {{ $node['Parse Test Result Payload'].json.test_score }}%.\n\nPosition:\nPython / Machine Learning Developer\n\nJoining Date:\n[Refer to attached offer letter]\n\nSalary:\n[Refer to attached offer letter]\n\nPlease find your official offer letter attached.\n\nRegards,\nHR Team\nTechCorp Solutions",
+        "options": {}
+      },
+      "id": "node-send-offer-email",
+      "name": "Send Offer Email with Attachment (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1160,
+        200
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "HR Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/webhooks/test-result",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"candidate_id\": \"{{ $json.candidate_id }}\",\n  \"candidate_email\": \"{{ $json.candidate_email }}\",\n  \"test_score\": {{ $json.test_score }}\n}",
+        "options": {}
+      },
+      "id": "node-fastapi-test-failed",
+      "name": "Trigger FastAPI Test Failed Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        920,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node['Parse Test Result Payload'].json.candidate_email }}",
+        "subject": "Application Update - TechCorp Solutions Assessment",
+        "message": "=Dear {{ $node['Parse Test Result Payload'].json.candidate_name }},\n\nThank you for completing the technical assessment for the Python / Machine Learning Developer position.\n\nAfter reviewing your assessment score of {{ $node['Parse Test Result Payload'].json.test_score }}%, we regret to inform you that we will not be proceeding with your application at this time as our minimum selection threshold is {{ $node['Parse Test Result Payload'].json.passing_score }}%.\n\nWe appreciate your time and interest in TechCorp Solutions.\n\nRegards,\nHR Team\nTechCorp Solutions",
+        "options": {}
+      },
+      "id": "node-send-test-rejection-email",
+      "name": "Send Assessment Rejection Email (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1160,
+        450
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "HR Gmail Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Test Result": {
+      "main": [
+        [
+          {
+            "node": "Parse Test Result Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Test Result Payload": {
+      "main": [
+        [
+          {
+            "node": "IF Score >= 80%?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Score >= 80%?": {
+      "main": [
+        [
+          {
+            "node": "Trigger FastAPI Offer Letter PDF Generation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Trigger FastAPI Test Failed Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger FastAPI Offer Letter PDF Generation": {
+      "main": [
+        [
+          {
+            "node": "Send Offer Email with Attachment (Gmail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger FastAPI Test Failed Status": {
+      "main": [
+        [
+          {
+            "node": "Send Assessment Rejection Email (Gmail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

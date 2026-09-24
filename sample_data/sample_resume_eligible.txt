@@ -1,0 +1,27 @@
+Alex Morgan
+Email: alex.morgan@example.com | Phone: +1-555-0192
+Location: San Francisco, CA | LinkedIn: linkedin.com/in/alexmorgan-dev
+
+PROFESSIONAL SUMMARY
+Results-driven Software & Machine Learning Engineer with 1.5 years of experience developing scalable RESTful microservices using Python and FastAPI. Experienced in tabular data analysis with Pandas & NumPy, training ML models, database modeling with SQL, and building automation pipelines with n8n.
+
+TECHNICAL SKILLS
+- Programming: Python, SQL, Bash
+- Frameworks: FastAPI, Flask, SQLAlchemy
+- Machine Learning & Data Science: Scikit-Learn, Pandas, NumPy, Data Preprocessing, Model Evaluation
+- Tools & Databases: Git, PostgreSQL, MySQL, Docker, REST API design, n8n automation
+
+EXPERIENCE
+Junior ML Developer | DataTech Innovations (Jan 2023 – Present)
+- Developed and deployed high-performance REST APIs using FastAPI and PyDantic, handling 50k+ daily requests.
+- Engineered data processing pipelines using Pandas and NumPy to clean and transform structured datasets.
+- Trained classification models using Scikit-Learn to evaluate candidate risk profiles.
+- Integrated MySQL database schema with SQLAlchemy ORM and optimized query execution times by 35%.
+
+EDUCATION
+B.Tech in Computer Science and Engineering
+State University | Graduated 2022 (GPA: 3.8/4.0)
+
+PROJECTS
+- Automated Recruitment Screening Pipeline: Built an automated recruitment workflow evaluating candidate resumes against job descriptions using Gemini AI and FastAPI backend.
+- Predictive Analytics API: Built a FastAPI microservice serving ML predictions for customer churn.
