@@ -226,13 +226,71 @@ Note: `screen-resume` itself does not send email. The acceptance/rejection email
 
 ---
 
-## 8. License & Author
+## 8. Production Deployment (Single Render URL)
+
+**Deploy everything on ONE URL** — frontend + backend + database on the same Render service.
+
+See [DEPLOY_SINGLE_URL.md](DEPLOY_SINGLE_URL.md) for the complete 5-minute guide.
+
+### Quick Overview
+
+| Component | Where | Cost |
+|---|---|---|
+| Frontend (React app) | Render static files | Included |
+| Backend (FastAPI API) | Render service | $7–15/mo |
+| Database (PostgreSQL) | Render | $15+/mo |
+| Total | Single URL | ~$22–30/mo |
+
+### Deployment Steps
+
+1. **Push to GitHub**:
+   ```bash
+   git add -A && git commit -m "Deploy" && git push
+   ```
+
+2. **Deploy on Render**:
+   - Go to render.com → New → Blueprint
+   - Paste GitHub repo URL
+   - Render reads `render.yaml` and auto-configures
+   - Set env vars: `GEMINI_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`
+   - Click Deploy → Wait 5–10 min
+
+3. **Done**:
+   - Frontend: `https://recruitment-app-xxxx.onrender.com/admin`
+   - API: `https://recruitment-app-xxxx.onrender.com/api/jobs`
+   - Everything on the **same domain**
+
+### Why Single URL?
+
+✅ **No CORS issues** — frontend and backend on same domain  
+✅ **Simple deployment** — one Render service, one PostgreSQL database  
+✅ **Automatic builds** — push to Git, Render rebuilds automatically  
+✅ **Cost efficient** — no extra services needed  
+✅ **Easy scaling** — Render handles it automatically  
+
+### Development (Unchanged)
+
+Local development stays the same:
+
+```bash
+# Terminal 1: Backend (http://localhost:8000)
+cd backend && ./venv/Scripts/python.exe -m uvicorn app.main:app --reload
+
+# Terminal 2: Frontend (http://localhost:3000 or 5173)
+cd frontend && npm run dev
+```
+
+The frontend dev server automatically proxies `/api/*` to the backend.
+
+---
+
+## 9. License & Author
 
 Developed for automated AI hiring workflow pipelines using n8n engine, FastAPI, React, and Google Gemini AI.
 
 ---
 
-## 9. Resume & CV Project Description (Ready to Copy-Paste)
+## 10. Resume & CV Project Description (Ready to Copy-Paste)
 
 ### Project Title
 **AI-Powered Automated Recruitment & Candidate Screening Platform**

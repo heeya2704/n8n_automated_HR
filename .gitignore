@@ -4,12 +4,10 @@ __pycache__/
 *$py.class
 venv/
 env/
-.env
 
 # Node / React
 node_modules/
 dist/
-.env.local
 
 # Database / Storage
 *.db
@@ -18,6 +16,6 @@ recruitment.db
 offer-letters/*.pdf
 
 # IDE
-.vscode/
 .idea/
 .DS_Store
+config.bat

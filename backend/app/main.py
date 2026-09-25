@@ -1,6 +1,9 @@
 import os
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,22 +46,30 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS
-origins = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-    "*"
-]
+# Configure CORS based on environment
+env = os.getenv("ENV", "development")
+if env == "production":
+    # In production, frontend and backend are on the same domain (single Render URL)
+    # No CORS needed, but allow same-origin requests
+    origins = ["*"]  # Frontend is served from same origin
+else:
+    # Development: allow localhost frontend to talk to localhost backend
+    origins = [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "*"
+    ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    max_age=600,
 )
 
 # Mount Routes
@@ -69,6 +80,7 @@ app.include_router(webhooks_router)
 app.include_router(dashboard_router)
 app.include_router(gmail_router)
 
+# API health check
 @app.get("/")
 def root():
     return {
@@ -77,6 +89,24 @@ def root():
         "docs_url": "/docs",
         "version": "1.0.0"
     }
+
+# Serve frontend static files (built React app)
+frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+
+    # Serve all other routes with index.html (SPA routing)
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve SPA - return index.html for all non-API routes"""
+        # Don't override /docs, /openapi.json, /api/* routes
+        if full_path.startswith(("docs", "openapi", "api", "favicon.ico")):
+            return None
+
+        index_file = frontend_dist / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        return {"error": "Frontend not built"}
 
 if __name__ == "__main__":
     import uvicorn
