@@ -1,6 +1,19 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+// In production (single Render URL), use relative paths (same domain)
+// In development, use localhost:8000 or the specified VITE_BACKEND_URL
+const API_BASE_URL = (() => {
+  const env = import.meta.env.VITE_BACKEND_URL;
+  if (env) return env;
+
+  // If running locally in dev, use localhost
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:8000';
+  }
+
+  // Production: use same domain (Render serves both frontend + backend)
+  return window.location.origin;
+})();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
